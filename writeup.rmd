@@ -1,0 +1,81 @@
+---
+title: "Machine Learning Writeup"
+author: "Michael"
+date: "September 23, 2015"
+output: html_document
+---
+
+Introduction
+=============
+This is my writeup for the Practical Machine Learning Course Project.  The project is to generate a model that can distinguish the correct performance of a dumbbell curve from four common errors.  The data is from research done by Velloso, Bulling, Gellersen, Ugulino, and Fuks for their paper: "[Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201)".  More information can be found at their website http://groupware.les.inf.puc-rio.br/har.  
+
+```{r set.options, echo=FALSE, warning=F, message=F}
+knitr::opts_chunk$set(cache=T, echo=F)
+
+library(ggplot2)
+library(caret)
+library(randomForest)
+```
+
+
+This report assumes that two files (pml-training.csv and pml-testing.csv) provided by the course instructors are available in the working directory although pml-testing won't be read until model training is complete.
+```{r load.data, echo=T}
+training <- read.csv('pml-training.csv')
+```
+
+The data has several fields with large numbers of missing values as seen below.
+```{r find.blanks}
+Blank.field.count <- sapply(training, function(x) {sum(is.na(x) | x=="")})
+qplot(factor(Blank.field.count), 
+      xlab='# of rows with blank/missing values', 
+      ylab='# of fields',
+      main='Count of fields with blank or Missing Values',
+      fill=I('cyan3'))
+```
+
+In addition to the columns with  `r max(Blank.field.count)` of `r nrow(training)` rows blank or missing; the first 7 columns involve timing of the measurements, rather than anything related to the performance of the exercise.  I'll remove those fields, as well as any remaining highly correlated fields to avoid their use in my model.
+
+```{r exclude.fields, echo=F}
+training2 <- training[,names(Blank.field.count[Blank.field.count==0])]
+training2 <- training2[,-c(1:7)]
+
+corMatrix <- cor(training2[,-length(training2)])
+corPredictors <- findCorrelation(corMatrix, cutoff=.9)
+
+filteredTraining <- training2[,-corPredictors]
+```
+
+Because I'm interested in a model that's accurate, rather than one that's interpretable, I'm going to use random forests to build the model.  However, it would take prohibitively long to build the model using all the remaining `r length(filteredTraining)` fields so I'm going to run models on sampled partitions to identify which fields are most interesting.
+
+```{r partitioning, echo=F}
+set.seed(3273) 
+subset <- createDataPartition(filteredTraining$classe, times=2, p=0.05, list=F)
+
+subTrain1 <- filteredTraining[subset[,1],]
+subTrain2 <- filteredTraining[subset[,2],]
+
+bootMod1 <- train(classe ~ ., data=subTrain1, method="rf")
+bootMod2 <- train(classe ~ ., data=subTrain2, method="rf")
+
+varImp(bootMod1)
+varImp(bootMod2)
+```
+
+The two models agree on very closely on the most important fields, I'll take the fields that appear in the top 10 of either sample and use them to build the final model.  Train uses cross validation to estimate OOB error, but I'll train it on 80% of the training data and reserve the other 20% as a cross-validation test.
+
+```{r finalModel, echo=T}
+trainSet <- createDataPartition(training$classe, p=0.8, list=FALSE)
+
+finalTrain = training[trainSet,]
+prelimTest = training[-trainSet,]
+
+finalModel <- train(classe ~ pitch_forearm + yaw_belt + magnet_dumbbell_y + magnet_dumbbell_z + roll_forearm + pitch_belt + magnet_belt_z + gyros_belt_z + accel_dumbbell_y + magnet_belt_y + roll_dumbbell, data=finalTrain, method="rf")
+
+finalModel$finalModel
+```
+
+That provides a good OOB accuracy estimate, and when applied to the data I held out for testing.
+
+```{r prelimTest}
+confusionMatrix(predict(finalModel, newdata=prelimTest), prelimTest$classe)
+```
