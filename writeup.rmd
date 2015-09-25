@@ -74,7 +74,7 @@ finalModel <- train(classe ~ pitch_forearm + yaw_belt + magnet_dumbbell_y + magn
 finalModel$finalModel
 ```
 
-That provides a good OOB accuracy estimate, and when applied to the data I held out for testing.
+That provides a good OOB accuracy estimate, and when applied to the data I held out for testing the error is similar to the OOB estimate determined by the caret package.
 
 ```{r prelimTest}
 confusionMatrix(predict(finalModel, newdata=prelimTest), prelimTest$classe)
